@@ -113,8 +113,26 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    # TODO: 实现数据采集
-    json.dump([], sys.stdout, ensure_ascii=False, indent=2)
+    token = args.token or os.environ.get("GITHUB_TOKEN")
+
+    # 采集 authored PR
+    authored = search_prs(args.user, args.org, args.since, args.until, token, query_prefix="author")
+    if isinstance(authored, dict) and "error" in authored:
+        json.dump(authored, sys.stdout, ensure_ascii=False, indent=2)
+        print()
+        sys.exit(1)
+
+    # 采集 reviewed PR
+    reviewed = search_prs(args.user, args.org, args.since, args.until, token, query_prefix="reviewed-by")
+    if isinstance(reviewed, dict) and "error" in reviewed:
+        json.dump(reviewed, sys.stdout, ensure_ascii=False, indent=2)
+        print()
+        sys.exit(1)
+
+    # 合并去重
+    result = merge_and_dedupe(authored, reviewed)
+
+    json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
     print()
 
 

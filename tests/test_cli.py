@@ -137,3 +137,48 @@ def test_merge_and_dedupe():
     assert sorted(pr100["role"]) == ["author", "reviewed_by"]
     pr200 = next(r for r in result if r["pr_number"] == 200)
     assert pr200["role"] == ["reviewed_by"]
+
+@patch("cli.requests.get")
+def test_main_end_to_end(mock_get, capsys):
+    """完整 main 调用，输出 JSON"""
+    mock_get.return_value = _mock_response(200, {
+        "total_count": 1,
+        "items": [{
+            "number": 42,
+            "title": "fix(catalog): proxy mode issue",
+            "state": "closed",
+            "created_at": "2026-03-17T08:00:00Z",
+            "pull_request": {"merged_at": "2026-03-18T10:00:00Z"},
+            "html_url": "https://github.com/matrixorigin/matrixflow/pull/42",
+            "repository_url": "https://api.github.com/repos/matrixorigin/matrixflow",
+        }]
+    })
+    cli.main(["--user", "aqqi666", "--org", "matrixorigin",
+              "--since", "2026-03-17", "--until", "2026-03-21", "--token", "fake"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert len(data) >= 1
+    assert data[0]["pr_number"] == 42
+    assert data[0]["state"] == "merged"
+
+@patch("cli.requests.get")
+def test_main_error_output(mock_get, capsys):
+    """API 错误时输出错误 JSON，退出码 1"""
+    mock_get.return_value = _mock_response(401, {"message": "Bad credentials"})
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["--user", "x", "--org", "y",
+                  "--since", "2026-03-17", "--until", "2026-03-21", "--token", "bad"])
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert "error" in data
+
+@patch("cli.requests.get")
+def test_main_empty_result(mock_get, capsys):
+    """无 PR 时输出空数组，退出码 0"""
+    mock_get.return_value = _mock_response(200, {"total_count": 0, "items": []})
+    cli.main(["--user", "x", "--org", "y",
+              "--since", "2026-03-17", "--until", "2026-03-21", "--token", "fake"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data == []
