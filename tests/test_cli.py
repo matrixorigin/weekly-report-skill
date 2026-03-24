@@ -115,3 +115,25 @@ def test_search_prs_rate_limit_retry(mock_get, mock_sleep):
     results = cli.search_prs("testuser", "org", "2026-03-17", "2026-03-21", "fake-token")
     assert len(results) == 1
     mock_sleep.assert_called_once()
+
+def test_merge_and_dedupe():
+    """同一 PR 既是 author 又是 reviewer 时，合并角色"""
+    authored = [
+        {"repo": "matrixflow", "pr_number": 100, "title": "feat: x", "state": "open",
+         "role": ["author"], "created_at": "2026-03-17", "merged_at": None,
+         "url": "https://github.com/org/matrixflow/pull/100"},
+    ]
+    reviewed = [
+        {"repo": "matrixflow", "pr_number": 100, "title": "feat: x", "state": "open",
+         "role": ["reviewed_by"], "created_at": "2026-03-17", "merged_at": None,
+         "url": "https://github.com/org/matrixflow/pull/100"},
+        {"repo": "matrixflow", "pr_number": 200, "title": "fix: y", "state": "merged",
+         "role": ["reviewed_by"], "created_at": "2026-03-18", "merged_at": "2026-03-19",
+         "url": "https://github.com/org/matrixflow/pull/200"},
+    ]
+    result = cli.merge_and_dedupe(authored, reviewed)
+    assert len(result) == 2
+    pr100 = next(r for r in result if r["pr_number"] == 100)
+    assert sorted(pr100["role"]) == ["author", "reviewed_by"]
+    pr200 = next(r for r in result if r["pr_number"] == 200)
+    assert pr200["role"] == ["reviewed_by"]

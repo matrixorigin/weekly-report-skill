@@ -87,6 +87,20 @@ def search_prs(user, org, since, until, token, query_prefix="author"):
     return all_items
 
 
+def merge_and_dedupe(authored, reviewed):
+    """合并 authored 和 reviewed 的 PR 列表，按 repo+pr_number 去重，合并角色。"""
+    index = {}
+    for pr in authored + reviewed:
+        key = (pr["repo"], pr["pr_number"])
+        if key in index:
+            existing_roles = set(index[key]["role"])
+            existing_roles.update(pr["role"])
+            index[key]["role"] = sorted(existing_roles)
+        else:
+            index[key] = dict(pr)
+    return sorted(index.values(), key=lambda x: x["created_at"], reverse=True)
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="采集 GitHub PR 数据，输出 JSON")
     parser.add_argument("--user", required=True, help="GitHub 用户名")
