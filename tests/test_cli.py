@@ -155,7 +155,9 @@ def test_main_end_to_end(mock_get, capsys):
         }]
     })
     empty_issue_resp = _mock_response(200, {"total_count": 0, "items": []})
-    mock_get.side_effect = [pr_resp, pr_resp, empty_issue_resp]
+    pr_detail_resp = _mock_response(200, {"additions": 50, "deletions": 10, "changed_files": 3})
+    # 2x PR search + 1x PR detail (merged PR) + 1x issue search
+    mock_get.side_effect = [pr_resp, pr_resp, pr_detail_resp, empty_issue_resp]
     cli.main(["--user", "aqqi666", "--org", "matrixorigin",
               "--since", "2026-03-17", "--until", "2026-03-21", "--token", "fake"])
     captured = capsys.readouterr()
@@ -163,6 +165,7 @@ def test_main_end_to_end(mock_get, capsys):
     assert "prs" in data
     assert "issues" in data
     assert len(data["prs"]) >= 1
+    assert data["prs"][0]["additions"] == 50
     assert data["prs"][0]["pr_number"] == 42
     assert data["prs"][0]["state"] == "merged"
 
@@ -218,8 +221,9 @@ def test_main_with_issues(mock_get, capsys):
             "assignees": [{"login": "testuser"}],
         }]
     })
-    # search_prs is called twice (author + reviewed-by), then search_issues once
-    mock_get.side_effect = [pr_response, pr_response, issue_response]
+    pr_detail_resp = _mock_response(200, {"additions": 100, "deletions": 20, "changed_files": 5})
+    # 2x PR search + 1x PR detail (merged) + 1x issue search
+    mock_get.side_effect = [pr_response, pr_response, pr_detail_resp, issue_response]
     cli.main(["--user", "testuser", "--org", "org",
               "--since", "2026-03-17", "--until", "2026-03-21", "--token", "fake"])
     captured = capsys.readouterr()

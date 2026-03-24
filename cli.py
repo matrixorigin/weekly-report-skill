@@ -203,6 +203,23 @@ def main(argv=None):
     # 合并去重 PR
     prs = merge_and_dedupe(authored, reviewed)
 
+    # 为已合并的 PR 补充 additions/deletions（需要额外 API 调用）
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    for pr in prs:
+        if pr["state"] == "merged":
+            try:
+                resp = requests.get(
+                    f"{GITHUB_API}/repos/{args.org}/{pr['repo']}/pulls/{pr['pr_number']}",
+                    headers=headers,
+                )
+                if resp.status_code == 200:
+                    detail = resp.json()
+                    pr["additions"] = detail.get("additions", 0)
+                    pr["deletions"] = detail.get("deletions", 0)
+                    pr["changed_files"] = detail.get("changed_files", 0)
+            except Exception:
+                pass
+
     # 采集 issues
     issues = search_issues(args.user, args.org, args.since, args.until, token)
     if isinstance(issues, dict) and "error" in issues:
