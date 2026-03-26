@@ -1,12 +1,13 @@
 # weekly-report-skill
 
-周报生成 Skill，支持各类 Claw 容器（NanoClaw、OpenClaw、QClaw 等）及 Claude Code。从 GitHub 采集 PR 和 Issue 数据，自动生成给 leader 看的工作周报。
+周报生成 Skill，支持各类 Claw 容器（NanoClaw、OpenClaw、QClaw 等）及 Claude Code。从 GitHub 采集 PR 和 Issue 数据，结合 Memoria 工作记忆，自动生成给 leader 看的工作周报。
 
 ## 功能
 
 - 采集指定用户在组织下的 PR（authored + reviewed）和 Issue（involved）
 - PR 自动关联 Issue（通过 body 中的 `fixes #xxx` / `closes #xxx`）
 - 已合并 PR 附带代码变更统计（additions / deletions / changed_files）
+- 集成 Memoria 记忆，自动补充 GitHub 覆盖不到的工作内容
 - 按业务主题自动分类，生成结构化周报
 - 支持对话式补充非 GitHub 内容（会议、评审等）
 

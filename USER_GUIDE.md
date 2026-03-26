@@ -1,10 +1,12 @@
 # 周报助手使用手册
 
-自动从 GitHub 采集你的 PR 和 Issue 数据，生成一份给 leader 看的工作周报。
+自动从 GitHub 采集你的 PR 和 Issue 数据，结合 Memoria 工作记忆，生成一份给 leader 看的工作周报。
 
 ## 安装
 
-把下面这句话发给你使用的 AI 工具（Claude Code、NanoClaw、OpenClaw、QClaw 等），它会自动帮你完成安装：
+建议优先使用对接了企微的 Claw（如 OpenClaw、QClaw），未来会对接企微的组织架构和数据，体验更好。
+
+把下面这句话发给你使用的 AI 工具（OpenClaw、QClaw、NanoClaw、Claude Code 等），它会自动帮你完成安装：
 
 > 帮我安装这个 skill：https://github.com/matrixorigin/weekly-report-skill
 
@@ -49,16 +51,17 @@
 
 | 今天是 | 生成的周报范围 |
 |--------|--------------|
-| 周四、周五 | 本周一 ~ 今天 |
-| 周一、周二、周三 | 上周一 ~ 上周五 |
+| 周四 ~ 周日 | 本周一 ~ 今天 |
+| 周一 ~ 周三 | 上周一 ~ 上周五 |
 
 也可以指定范围，比如"生成上周的周报"、"生成 3/10 到 3/14 的周报"。
 
-### 采集范围
+### 数据来源
 
-- 你**创建**的 PR
-- 你**评审**的 PR
-- 你**参与**的 Issue（创建、评论、被 assign、被 mention）
+周报的内容来自以下数据源：
+
+- **GitHub** — 你创建的 PR、评审的 PR、参与的 Issue（创建、评论、被 assign、被 mention）
+- **Memoria** — 如果你的环境中有 Memoria，助手会自动从中获取与工作相关的记忆，补充 GitHub 覆盖不到的内容
 
 不需要有关联 PR 的 Issue 也会被采集到。
 

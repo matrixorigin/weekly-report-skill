@@ -109,7 +109,7 @@ python ${CLAUDE_SKILL_DIR}/cli.py config --set scopes "org:matrixorigin,org:anot
 
 根据**今天的实际日期**（年月日）推断默认周期。注意使用正确的年份。
 
-- **周四、周五**：本周周报，范围 = 本周一 ~ 今天
+- **周四、周五、周六、周日**：本周周报，范围 = 本周一 ~ 今天
 - **周一、周二、周三**：补上周周报，范围 = 上周一 ~ 上周五
 
 日期格式为 `YYYY-MM-DD`，确保年份正确。
@@ -145,6 +145,7 @@ python ${CLAUDE_SKILL_DIR}/cli.py fetch --since {since} --until {until}
 - **GitHub 数据**：PR 和 Issue 的全量结构化数据（含 body、状态、labels、评论讨论、关联关系等）。这是原始素材，不是周报结构。你需要：
   - **深入阅读内容**：Issue 和 PR 的 body、评论讨论（comments_detail / review_comments / comments）中包含大量上下文——需求背景、讨论结论、决策过程、阻塞原因等。不要只看 title 和 state。
   - **理解逻辑关系**：不要逐条平铺罗列。多个 Issue/PR 之间往往存在内在关联。通过 repo 名称、labels、body 中的互相引用（如 #123、relates to）、共同的关键词等线索，理解数据之间的真实关系，用合理的方式归类组织。
+- **Memoria 记忆**：如果当前环境中有 Memoria（skill 或 MCP），从中获取与工作相关的记忆，自行判断哪些适合纳入周报。没有 Memoria 则跳过。
 - **读者**：用户的 leader
 
 根据这些上下文，自行决定周报的组织方式、板块划分、详略程度。不要使用固定模板。
