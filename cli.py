@@ -300,6 +300,9 @@ def parse_args(argv=None):
     config_parser.add_argument("--set", nargs=2, action="append", metavar=("KEY", "VALUE"), help="设置配置项，如 --set token ghp_xxx")
     config_parser.add_argument("--get", action="store_true", help="输出当前配置（JSON）")
 
+    # scopes 子命令
+    scopes_parser = subparsers.add_parser("scopes", help="列出用户可用的组织和仓库")
+
     # fetch 子命令
     fetch_parser = subparsers.add_parser("fetch", help="采集 PR 和 Issue 数据")
     fetch_parser.add_argument("--since", required=True, help="开始日期（含），格式 YYYY-MM-DD")
@@ -330,6 +333,47 @@ def cmd_config(args):
     # 始终输出当前配置和缺失字段
     missing = [f for f in REQUIRED_FIELDS if not config.get(f)]
     result = {"config": config, "missing": missing, "config_file": CONFIG_FILE}
+    json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
+    print()
+
+
+def cmd_scopes(args):
+    """列出用户可访问的组织和仓库。"""
+    config = load_config()
+    token = config.get("token")
+    if not token:
+        json.dump({"error": "config_incomplete", "message": "请先配置 token"}, sys.stdout, ensure_ascii=False, indent=2)
+        print()
+        sys.exit(1)
+
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+
+    # 获取用户所属的组织
+    orgs = []
+    resp = requests.get(f"{GITHUB_API}/user/orgs", headers=headers, params={"per_page": 100})
+    if resp.status_code == 200:
+        orgs = [org["login"] for org in resp.json()]
+
+    # 获取用户自己的仓库（非 fork，近一年有更新的）
+    repos = []
+    page = 1
+    while True:
+        resp = requests.get(
+            f"{GITHUB_API}/user/repos",
+            headers=headers,
+            params={"per_page": 100, "page": page, "sort": "updated", "affiliation": "owner"},
+        )
+        if resp.status_code != 200:
+            break
+        items = resp.json()
+        for r in items:
+            if not r.get("fork"):
+                repos.append(r["full_name"])
+        if len(items) < 100:
+            break
+        page += 1
+
+    result = {"orgs": orgs, "repos": repos[:30]}  # 仓库最多展示 30 个
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
     print()
 
@@ -416,6 +460,8 @@ def main(argv=None):
     args = parse_args(argv)
     if args.command == "config":
         cmd_config(args)
+    elif args.command == "scopes":
+        cmd_scopes(args)
     elif args.command == "fetch":
         cmd_fetch(args)
 

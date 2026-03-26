@@ -75,18 +75,28 @@ python ${CLAUDE_SKILL_DIR}/cli.py config --set role {role}
 
 ### 缺 scopes → 询问仓库范围
 
-询问用户："你需要纳入周报的仓库范围是？默认是 matrixorigin 组织，如果还有其他组织或个人仓库需要包含，请告诉我（如 `org:another-org`、`repo:user/my-repo`）。如果只需要 matrixorigin 就够了，直接说'就这些'。"
+`matrixorigin` 组织默认包含，无需用户确认。
 
-如果用户说"就这些"或类似确认，scopes 设为 `org:matrixorigin`。
+运行以下命令获取用户可访问的**其他**组织和仓库：
+```bash
+python ${CLAUDE_SKILL_DIR}/cli.py scopes
+```
+
+命令会返回：
+```json
+{"orgs": ["another-org"], "repos": ["user/repo-a", "user/repo-b"]}
+```
+
+如果 orgs 和 repos 都为空，说明用户只有 matrixorigin，直接设置 scopes 为 `org:matrixorigin`，跳过询问。
+
+如果有其他组织或仓库，将列表展示给用户，说明"matrixorigin 已默认包含"，然后询问："除了 matrixorigin，以下是你可访问的其他组织和仓库，还需要额外纳入哪些？你可以说：全部加入、只要 XXX、不要 XXX、不需要其他的。"
 
 **然后停下来，等用户回答。不要继续下一步。**
 
-用户回答后，运行：
+根据用户回答确定额外范围，与 `org:matrixorigin` 合并，拼成逗号分隔的字符串，运行：
 ```bash
-python ${CLAUDE_SKILL_DIR}/cli.py config --set scopes "org:matrixorigin,repo:user/my-repo"
+python ${CLAUDE_SKILL_DIR}/cli.py config --set scopes "org:matrixorigin,org:another-org"
 ```
-
-将用户提供的范围拼成逗号分隔的字符串传入。
 
 ### 配置变更
 

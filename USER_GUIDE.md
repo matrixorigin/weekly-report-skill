@@ -2,61 +2,48 @@
 
 自动从 GitHub 采集你的 PR 和 Issue 数据，生成一份给 leader 看的工作周报。
 
-## 前置准备
+## 安装
 
-### 1. 准备 GitHub Token
+把下面这句话发给你使用的 AI 工具（Claude Code、NanoClaw、OpenClaw、QClaw 等），它会自动帮你完成安装：
 
-你需要一个 GitHub Personal Access Token（用于读取你的 PR 和 Issue 数据）。
+> 帮我安装这个 skill：https://github.com/matrixorigin/weekly-report-skill
 
-1. 打开 https://github.com/settings/tokens/new
-2. **Note** 随便填，如 `weekly-report`
-3. **Expiration** 选 **No expiration**（或按需设置）
-4. **勾选 `repo`** 权限（只需要这一个）
-5. 点击 **Generate token**，复制生成的 token（以 `ghp_` 开头）
+安装完成后，说 **"周报"** 即可开始使用。
+
+## 首次使用
+
+首次说"周报"时，助手会引导你完成以下配置（只需一次）：
+
+### 1. GitHub Token
+
+助手会告诉你怎么创建 Token，按步骤操作后把 Token 发给它即可。
 
 > Token 只会保存在你本地的 `~/.weekly-report/config.json` 中，不会上传到任何地方。
 
-### 2. 安装 Skill
+### 2. GitHub 用户名
 
-根据你使用的工具，选择对应的安装方式：
+告诉助手你的 GitHub 账号名。
 
-**Claude Code：**
+### 3. 岗位
 
-```bash
-cp -r weekly-report-skill ~/.claude/skills/weekly-report/
-pip install -r ~/.claude/skills/weekly-report/requirements.txt
-```
+告诉助手你的岗位（如：后端研发、前端研发、产品经理、测试工程师、SRE 等）。周报会根据岗位自动调整视角和侧重点。
 
-**Claw 容器（NanoClaw / OpenClaw / QClaw 等）：**
+### 4. 仓库范围
 
-```bash
-cp -r weekly-report-skill container/skills/weekly-report/
-```
+助手会自动列出你可访问的所有组织和仓库（matrixorigin 默认包含），你只需要说：
 
-安装完成后，确认 Python 环境中有 `requests` 库：
+- **"全部加入"** — 纳入所有组织和仓库
+- **"只要 XXX"** — 只额外加入指定的
+- **"不要 XXX"** — 排除指定的，其余加入
+- **"不需要其他的"** — 只用 matrixorigin
 
-```bash
-pip install requests
-```
+配置会自动保存，之后每次说"周报"就会直接生成，不再重复询问。
 
-## 使用方法
+## 日常使用
 
 ### 生成周报
 
-直接说 **"周报"** 即可。
-
-### 首次使用
-
-首次使用时，助手会逐步引导你完成配置（只需一次）：
-
-1. **GitHub Token** — 粘贴你准备好的 token
-2. **GitHub 用户名** — 你的 GitHub 账号名
-3. **岗位** — 如：后端研发、前端研发、产品经理、测试工程师、SRE 等
-4. **仓库范围** — 默认采集 `matrixorigin` 组织，如果还有其他组织或个人仓库，告诉助手即可；如果只需要 matrixorigin，直接说"就这些"
-
-配置会保存到本地 `~/.weekly-report/config.json`，之后每次说"周报"就会直接生成，不再重复询问。
-
-### 日期范围
+直接说 **"周报"**。
 
 助手会自动判断日期范围：
 
@@ -65,21 +52,15 @@ pip install requests
 | 周四、周五 | 本周一 ~ 今天 |
 | 周一、周二、周三 | 上周一 ~ 上周五 |
 
-如果需要指定范围，直接说，比如"生成上周的周报"、"生成 3/10 到 3/14 的周报"。
+也可以指定范围，比如"生成上周的周报"、"生成 3/10 到 3/14 的周报"。
 
 ### 采集范围
-
-助手会采集以下数据：
 
 - 你**创建**的 PR
 - 你**评审**的 PR
 - 你**参与**的 Issue（创建、评论、被 assign、被 mention）
 
 不需要有关联 PR 的 Issue 也会被采集到。
-
-### 周报风格
-
-周报会根据你的岗位自动调整视角和侧重点，不使用固定模板。开头会有一段总结性概览，其中会突出风险、阻塞或延期的问题。
 
 ### 补充内容
 
@@ -89,9 +70,9 @@ pip install requests
 - "补充：周二和客户做了方案对齐"
 - "这周还做了 XX 的竞品调研"
 
-助手会把补充内容融入周报重新输出。如果没有要补充的，说"没有了"即可。
+助手会把补充内容融入周报，重新输出完整的周报。没有要补充的就说"没有了"。
 
-## 修改配置
+### 修改配置
 
 随时可以通过对话修改，比如：
 
@@ -100,7 +81,7 @@ pip install requests
 - "换个 token"
 - "去掉 xxx 仓库"
 
-## 输出方式
+### 输出方式
 
 | 说法 | 效果 |
 |------|------|
