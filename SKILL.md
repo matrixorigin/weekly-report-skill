@@ -75,7 +75,9 @@ python ${CLAUDE_SKILL_DIR}/cli.py config --set role {role}
 
 ### 缺 scopes → 询问仓库范围
 
-询问用户："你需要纳入周报的仓库范围是？请告诉我组织名或仓库名（如 `org:matrixorigin`、`repo:user/my-repo`），多个用逗号分隔。"
+询问用户："你需要纳入周报的仓库范围是？默认是 matrixorigin 组织，如果还有其他组织或个人仓库需要包含，请告诉我（如 `org:another-org`、`repo:user/my-repo`）。如果只需要 matrixorigin 就够了，直接说'就这些'。"
+
+如果用户说"就这些"或类似确认，scopes 设为 `org:matrixorigin`。
 
 **然后停下来，等用户回答。不要继续下一步。**
 
