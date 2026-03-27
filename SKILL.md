@@ -140,7 +140,12 @@ python ${CLAUDE_SKILL_DIR}/cli.py fetch --since {since} --until {until}
 
 ## 4. 获取工作记忆
 
-如果当前环境中有 Memoria（skill 或 MCP），**必须在生成周报前主动使用它**，获取与工作相关的记忆，自行判断哪些适合纳入周报。没有 Memoria 则跳过此步。
+如果当前环境中有 Memoria（skill 或 MCP），**必须在生成周报前主动使用它**：
+
+- 从多个角度搜索工作相关的记忆，不要局限于岗位的典型工作内容
+- 搜到的记忆与 GitHub 数据同等重要，必须纳入周报生成的素材中，不能忽略
+
+没有 Memoria 则跳过此步。
 
 ## 5. 生成周报
 
