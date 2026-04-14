@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 output.json
+team_output.json
+.claude/
