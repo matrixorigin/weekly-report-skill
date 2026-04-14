@@ -85,17 +85,18 @@ skill 不假设身份从哪来。**Claude 在调 whoami 之前，应当主动检
 
 ### 0.4 显式指定团队名时的部门解析
 
-用户说"XX 部门的周报"时，列出所有部门让匹配：
-```bash
-python ${CLAUDE_SKILL_DIR}/cli.py wecom-team
-```
+**规则很硬**：用户只要说了一个中文部门名/小组名/"XX 部门的周报"/"XX 组的周报"——一律按**企微部门**处理，**绝对不要问用户 GitHub team slug，不要问组织名，不要问仓库列表**。
 
-或下钻：
-```bash
-python ${CLAUDE_SKILL_DIR}/cli.py wecom-team --department-id {id}
-```
+正确流程：
 
-找到对应 ID 后，在 fetch-team 时传 `--department-id`，**不修改用户的默认配置**。
+1. 跑 `cli.py wecom-team` 拿全量部门
+2. 从返回里按名字匹配用户说的 XX（支持部分匹配，比如用户说"前端" → 对上"前端开发"）
+3. 多个候选时简短列出让用户确认（"我找到 3 个包含'前端'的部门：前端开发、XXX、YYY，你要哪个？"）
+4. 拿到 `dept_id` → 跳到 8.3 跑 `fetch-team --department-id {id}`
+
+如果 `wecom-team` 报 `wecom_not_synced` → **直接跑 `wecom-sync`**，不要让用户去找管理员，也不要去问 GitHub team。同步完重试 wecom-team。
+
+**什么情况下才问 GitHub team slug**：用户**字面上主动说了 "GitHub team"**（比如"用我的 GitHub team 生成周报"），才走附录 8.A。中文说"部门/组"一律不是这种情况。
 
 ### 0.5 管理类指令（非周报主流程）
 
@@ -246,7 +247,11 @@ python ${CLAUDE_SKILL_DIR}/cli.py fetch --since {since} --until {until} [--wecom
 
 ## 8. 团队周报流程
 
-团队成员默认从**企微组织架构**取（通过企微部门 + 别名字段映射 GitHub 账号）。只有纯 GitHub team 场景下才走备用的 `team-discover` 路径（见附录 8.A）。
+**默认且首选：企微部门**。团队成员从企微组织架构取（通过企微部门 + 别名字段映射 GitHub 账号）。
+
+**只有一种情况走附录 8.A 的 GitHub team 路径**：用户**字面上主动说**"用我的 GitHub team"或"GitHub team slug 是 XXX"。
+
+用户说的任何中文"部门"、"组"、"小组"、"团队"都应**按企微部门处理**，不要去问 GitHub team slug、组织名、仓库列表。如果企微数据没同步（`wecom_not_synced`），自己跑 `cli.py wecom-sync` 补上再继续——不要让用户去找管理员，也不要降级到 GitHub team 路径。
 
 ### 8.0 企微对接配置（仅限管理员首次部署时；日常使用可跳过）
 
@@ -466,7 +471,7 @@ python ${CLAUDE_SKILL_DIR}/cli.py list-report-targets --only-with-leader --only-
 
 ## 附录 8.A 备用：GitHub team 作为成员来源
 
-仅在用户**没有企微、或明确要求用 GitHub team** 的情况下走。
+**触发门槛很高**：仅当用户**字面上主动说了** "GitHub team"、"team slug"、或明确要求用 GitHub team 做数据源时才走。中文"部门/组/团队"一律不触发这里——那些走企微部门路径（见 0.4 和第 8 节）。
 
 需要 token 有 `read:org`。失败返回 `insufficient_scope` 时让用户重新生成 token 勾上 `read:org`。
 
