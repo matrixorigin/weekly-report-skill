@@ -33,12 +33,44 @@ def compute_missing(config):
       position，role 不再强制要求（即使本地也有 config.role 兜底）；
       否则（纯本地无企微场景）仍必填。
     """
-    base_required = ["token", "username", "scopes"]
-    missing = [f for f in base_required if not config.get(f)]
+    missing = []
+    if not config.get("token"):
+        missing.append("token")
+    # username 由设 token 时自动反查填入；只在 token 有但 username 没的极端情况下才算缺
+    if config.get("token") and not config.get("username"):
+        missing.append("username")
+    if not config.get("scopes"):
+        missing.append("scopes")
     has_wecom = bool(config.get("wecom_corpid") and config.get("wecom_secret"))
     if not has_wecom and not config.get("role"):
         missing.append("role")
     return missing
+
+
+# 缺失字段对应的"怎么补"引导文本。CLI 直接吐给 agent，agent 原样转述给用户即可。
+# 这样不依赖 agent 去执行 SKILL.md 里的复杂叙述指令，任何 LLM/agent 都能一致引导。
+MISSING_HINTS = {
+    "token": (
+        "缺 GitHub Token，获取方法：\n"
+        "1. 打开 https://github.com/settings/tokens/new\n"
+        "2. Note 随便填（如 weekly-report）\n"
+        "3. Expiration 选 No expiration（或按公司要求）\n"
+        "4. Scopes 勾选 repo（必需，读 PR/Issue）和 read:org（读团队）\n"
+        "5. 点 Generate token，把生成的 ghp_xxx 字符串发给我\n"
+        "发给我之后我会保存并自动识别你的 GitHub 账号。"
+    ),
+    "username": (
+        "缺 GitHub 用户名。一般会在设 token 时自动填好；如果没填上，手动告诉我你的 GitHub login。"
+    ),
+    "role": (
+        "缺岗位信息。告诉我你的岗位（如：产品经理、后端研发、前端研发、测试工程师、SRE 等）。\n"
+        "注意：如果你配了企微（wecom_corpid/secret），可以跳过这个，改从企微通讯录的职位字段自动取。"
+    ),
+    "scopes": (
+        "缺 GitHub 搜索范围。我会跑 `cli.py scopes` 列出你能访问的 org 和个人 repo，你确认要哪些。\n"
+        "典型选择：公司 org（如 org:matrixorigin）+ 你自己账号（user:你的github名）。"
+    ),
+}
 
 
 def cache_path(dept_id, since, until):
@@ -508,6 +540,13 @@ def parse_args(argv=None):
     fetch_parser = subparsers.add_parser("fetch", help="采集 PR 和 Issue 数据")
     fetch_parser.add_argument("--since", required=True, help="开始日期（含），格式 YYYY-MM-DD")
     fetch_parser.add_argument("--until", required=True, help="结束日期（含），格式 YYYY-MM-DD")
+    fetch_parser.add_argument("--wecom-userid",
+                               help="以该企微 userid 为视角采集（共享部署下，从 claw 的 sender_id 传入）。"
+                                    "会从企微数据查出对应 github_login 和 position 作为搜索主体和岗位。")
+    fetch_parser.add_argument("--github-login",
+                               help="直接指定 GitHub login 作为搜索主体，覆盖 config.username")
+    fetch_parser.add_argument("--role",
+                               help="直接指定岗位，覆盖 config.role 和 whoami.position")
 
     # team-discover 子命令
     subparsers.add_parser("team-discover", help="自动发现用户所在的 GitHub teams")
@@ -623,9 +662,11 @@ def cmd_config(args):
                 config[key] = value
         save_config(config)
 
-    # 始终输出当前配置和缺失字段
+    # 始终输出当前配置和缺失字段 + 引导文本
     missing = compute_missing(config)
     result = {"config": config, "missing": missing, "config_file": CONFIG_FILE}
+    if missing:
+        result["hints"] = {f: MISSING_HINTS.get(f, "") for f in missing}
     if auto_username_filled:
         result["auto_username_filled"] = auto_username_filled
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
@@ -673,25 +714,81 @@ def cmd_scopes(args):
     print()
 
 
+def _resolve_fetch_identity(args, config):
+    """解析 fetch 采集的身份（搜索主体 + 岗位）。
+
+    优先级：
+    1. --github-login（显式）
+    2. --wecom-userid → 从 wecom.json 查该成员的 github_login 和 position
+    3. config.username / config.role（兜底，本机单用户场景）
+
+    返回 (username_for_search, role_for_summary, source_note)
+    """
+    # 显式 --github-login 优先
+    gh_login = getattr(args, "github_login", None)
+    role_override = getattr(args, "role", None)
+
+    # --wecom-userid 路径
+    wecom_userid = getattr(args, "wecom_userid", None)
+    wecom_position = None
+    if wecom_userid and not gh_login:
+        wecom_data = load_wecom_data()
+        if wecom_data:
+            me = next((m for m in wecom_data.get("members", [])
+                         if m.get("userid") == wecom_userid), None)
+            if me:
+                gh_login = me.get("github_login") or None
+                wecom_position = me.get("position", "") or None
+            else:
+                return None, None, {"error": "wecom_member_not_found",
+                                     "message": f"企微数据里没 userid={wecom_userid}，请先跑 wecom-sync"}
+        else:
+            return None, None, {"error": "wecom_not_synced",
+                                 "message": "需要企微数据但未同步，请先跑 wecom-sync"}
+
+    # 兜底 config
+    if not gh_login:
+        gh_login = config.get("username")
+    role = role_override or wecom_position or config.get("role", "")
+
+    source = {
+        "username": gh_login,
+        "role": role,
+        "role_source": "args.role" if role_override else ("whoami.position" if wecom_position else "config.role"),
+    }
+    return gh_login, role, source
+
+
 def cmd_fetch(args):
     """处理 fetch 子命令。"""
     config = load_config()
 
-    # 检查必填字段
-    missing = compute_missing(config)
+    # 解析身份（共享部署下支持从 --wecom-userid / --github-login 传入调用者）
+    user, role, source = _resolve_fetch_identity(args, config)
+    if isinstance(source, dict) and "error" in source:
+        json.dump(source, sys.stdout, ensure_ascii=False, indent=2)
+        print()
+        sys.exit(1)
+
+    # 检查必填：token / scopes 必填；username 必须解析出（config 或 args）
+    token = config.get("token")
+    scopes = config.get("scopes")
+    missing = []
+    if not token:
+        missing.append("token")
+    if not scopes:
+        missing.append("scopes")
+    if not user:
+        missing.append("username (或传 --wecom-userid / --github-login)")
     if missing:
         json.dump({
             "error": "config_incomplete",
             "missing": missing,
-            "message": f"配置不完整，缺少: {', '.join(missing)}。请先运行 config --set 补全配置。",
+            "message": f"配置或入参不完整，缺少: {', '.join(missing)}",
             "config_file": CONFIG_FILE,
         }, sys.stdout, ensure_ascii=False, indent=2)
         print()
         sys.exit(1)
-
-    token = config["token"]
-    user = config["username"]
-    scopes = config["scopes"]
 
     # 第一阶段：并行搜索所有 scope 的 PR 和 Issue
     all_authored = []
@@ -745,7 +842,9 @@ def cmd_fetch(args):
         "output_file": output_path,
         "pr_count": len(prs),
         "issue_count": len(unique_issues),
-        "role": config.get("role", ""),
+        "username": user,
+        "role": role,
+        "role_source": source.get("role_source") if isinstance(source, dict) else None,
     }
     json.dump(summary, sys.stdout, ensure_ascii=False, indent=2)
     print()
