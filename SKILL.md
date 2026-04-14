@@ -154,18 +154,9 @@ python ${CLAUDE_SKILL_DIR}/cli.py config --get
 python ${CLAUDE_SKILL_DIR}/cli.py config --set token {token}
 ```
 
-继续检查下一个缺失字段。
+命令会自动用 token 调 GitHub `/user` 反查出 login，同时填上 `username` 字段。**不要再单独问 username**。
 
-### 缺 username → 询问 GitHub 用户名
-
-询问用户："你的 GitHub 用户名是？"
-
-**停下来等用户回答。**
-
-用户回答后，运行：
-```bash
-python ${CLAUDE_SKILL_DIR}/cli.py config --set username {username}
-```
+返回的 JSON 里 `auto_username_filled` 字段会显示自动填入的 GitHub login，可以告诉用户一下："识别到你的 GitHub 账号是 {login}"。
 
 继续检查下一个缺失字段。
 

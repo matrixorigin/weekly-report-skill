@@ -570,9 +570,25 @@ def cmd_config(args):
     """处理 config 子命令。"""
     config = load_config()
 
+    auto_username_filled = None
+
     if args.set:
         for key, value in args.set:
-            if key == "scopes":
+            if key == "token":
+                config["token"] = value
+                # 自动反查 GitHub login 填 username，不用再问用户
+                try:
+                    resp = requests.get(f"{GITHUB_API}/user",
+                                         headers={"Authorization": f"token {value}", "Accept": "application/vnd.github.v3+json"},
+                                         timeout=10)
+                    if resp.status_code == 200:
+                        login = resp.json().get("login", "")
+                        if login:
+                            config["username"] = login
+                            auto_username_filled = login
+                except Exception:
+                    pass  # 失败不阻塞，后续用户可以手动 set
+            elif key == "scopes":
                 # scopes 存为列表，如 "org:matrixorigin,repo:user/repo"
                 config["scopes"] = [s.strip() for s in value.split(",") if s.strip()]
             elif key == "team":
@@ -610,6 +626,8 @@ def cmd_config(args):
     # 始终输出当前配置和缺失字段
     missing = compute_missing(config)
     result = {"config": config, "missing": missing, "config_file": CONFIG_FILE}
+    if auto_username_filled:
+        result["auto_username_filled"] = auto_username_filled
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
     print()
 
