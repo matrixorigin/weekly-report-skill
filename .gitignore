@@ -4,3 +4,6 @@ __pycache__/
 output.json
 team_output.json
 .claude/
+.DS_Store
+docs/企微通讯录-*.md
+docs/企微通讯录-*.xlsx
