@@ -287,12 +287,19 @@ def search_prs(user, scope, since, until, token, query_prefix="author"):
     page = 1
 
     while True:
-        for attempt in range(3):
-            resp = requests.get(
-                f"{GITHUB_API}/search/issues",
-                params={"q": query, "per_page": 100, "page": page, "sort": "updated", "order": "desc"},
-                headers=headers,
-            )
+        for attempt in range(5):
+            try:
+                resp = requests.get(
+                    f"{GITHUB_API}/search/issues",
+                    params={"q": query, "per_page": 100, "page": page, "sort": "updated", "order": "desc"},
+                    headers=headers,
+                    timeout=30,
+                )
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                time.sleep(2 ** attempt)
+                if attempt == 4:
+                    return {"error": "github_unreachable", "message": f"网络错误（已重试 5 次）: {e}"}
+                continue
 
             # 缓存 JSON 解析结果，避免重复调用 + 防止非 JSON 响应崩溃
             try:
@@ -361,12 +368,19 @@ def search_issues(user, scope, since, until, token):
     page = 1
 
     while True:
-        for attempt in range(3):
-            resp = requests.get(
-                f"{GITHUB_API}/search/issues",
-                params={"q": query, "per_page": 100, "page": page, "sort": "updated", "order": "desc"},
-                headers=headers,
-            )
+        for attempt in range(5):
+            try:
+                resp = requests.get(
+                    f"{GITHUB_API}/search/issues",
+                    params={"q": query, "per_page": 100, "page": page, "sort": "updated", "order": "desc"},
+                    headers=headers,
+                    timeout=30,
+                )
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                time.sleep(2 ** attempt)
+                if attempt == 4:
+                    return {"error": "github_unreachable", "message": f"网络错误（已重试 5 次）: {e}"}
+                continue
 
             try:
                 body = resp.json()
@@ -1235,6 +1249,150 @@ def cmd_wecom_set_team(args):
     print()
 
 
+RECURSIVE_FETCH_THRESHOLD = 15  # 成员超过此数且有子部门时，走递归采集
+
+
+def _collect_for_single_member(user, scopes, since, until, token):
+    """采集单个成员的 PR + Issue 详情。被并行池调度。"""
+    authored_all, reviewed_all, issues_all = [], [], []
+    for scope in scopes:
+        a = search_prs(user, scope, since, until, token, query_prefix="author")
+        r = search_prs(user, scope, since, until, token, query_prefix="reviewed-by")
+        i = search_issues(user, scope, since, until, token)
+        for result in (a, r, i):
+            if isinstance(result, dict) and "error" in result:
+                return {"user": user, "error": result}
+        authored_all.extend(a)
+        reviewed_all.extend(r)
+        issues_all.extend(i)
+    prs = merge_and_dedupe(authored_all, reviewed_all)
+    seen = {}
+    for issue in issues_all:
+        key = (issue["repo"], issue["issue_number"])
+        if key not in seen:
+            seen[key] = issue
+    issues = sorted(seen.values(), key=lambda x: x["updated_at"], reverse=True)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        for f in as_completed(
+            [pool.submit(fetch_pr_details, pr, token) for pr in prs]
+            + [pool.submit(fetch_issue_comments, iss, token) for iss in issues]
+        ):
+            f.result()
+    return {"user": user, "prs": prs, "issues": issues}
+
+
+def _fetch_member_list(member_logins, scopes, since, until, token, max_workers=3):
+    """对一组 GitHub login 并行采集，返回 (team_data, errors)。
+
+    max_workers 默认 3，避免大团队压爆 SSL 连接。
+    """
+    team_data = {}
+    errors = []
+    if not member_logins:
+        return team_data, errors
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(member_logins))) as pool:
+        futures = {pool.submit(_collect_for_single_member, m, scopes, since, until, token): m
+                   for m in member_logins}
+        for future in as_completed(futures):
+            result = future.result()
+            user = result["user"]
+            if "error" in result:
+                errors.append({"user": user, "error": result["error"]})
+                continue
+            team_data[user] = {"prs": result["prs"], "issues": result["issues"]}
+    return team_data, errors
+
+
+def _fetch_team_recursive(dept_id, since, until, token, scopes, wecom_data, refresh,
+                          dept_by_id, overrides_inv):
+    """递归采集：对每个直接子部门分别 fetch（复用缓存），合并 + 加直属成员。
+
+    返回 team_output 格式的 dict。
+    """
+    departments = wecom_data.get("departments", [])
+    members = wecom_data.get("members", [])
+    dept_node = dept_by_id.get(dept_id, {})
+
+    # 该部门的直接子部门
+    children = [d for d in departments if d.get("parentid") == dept_id]
+
+    merged_data = {}
+    all_errors = []
+    subtree_groups = []
+
+    # 1. 递归处理每个子部门（先查缓存，miss 时递归 fetch）
+    for child in children:
+        cached = None
+        if not refresh:
+            cached = cache_load(child["id"], since, until)
+
+        if cached:
+            child_output = cached
+        else:
+            # 子部门继续递归（它自己可能还有子部门）
+            child_output = _fetch_team_recursive(
+                child["id"], since, until, token, scopes, wecom_data, refresh,
+                dept_by_id, overrides_inv,
+            )
+            cache_save(child["id"], since, until, child_output)
+
+        # 合并数据
+        for login, data in child_output.get("data", {}).items():
+            merged_data[login] = data
+        all_errors.extend(child_output.get("errors", []))
+
+        # 该子部门整体作为一个分组
+        child_logins = list(child_output.get("data", {}).keys())
+        if child_logins:
+            subtree_groups.append({
+                "dept_id": child["id"],
+                "dept_name": child.get("name", ""),
+                "members": child_logins,
+            })
+
+    # 2. 直属成员（只在本部门、不在任何子部门子树里的）
+    child_subtree_ids = set()
+    for child in children:
+        child_subtree_ids.update(_get_sub_department_ids(departments, child["id"]))
+        child_subtree_ids.add(child["id"])
+
+    direct_logins = []
+    for m in members:
+        member_depts = set(m.get("department", []))
+        if dept_id not in member_depts:
+            continue
+        if member_depts & child_subtree_ids:  # 属于某个子部门，跳过
+            continue
+        gh = m.get("github_login")
+        if gh and gh not in merged_data:
+            direct_logins.append(gh)
+
+    if direct_logins:
+        direct_data, direct_errors = _fetch_member_list(direct_logins, scopes, since, until, token)
+        merged_data.update(direct_data)
+        all_errors.extend(direct_errors)
+        subtree_groups.insert(0, {
+            "dept_id": dept_id,
+            "dept_name": f"{dept_node.get('name', '')}（直属）",
+            "members": direct_logins,
+        })
+
+    # 构造 team_output 结构
+    return {
+        "team": {
+            "source": "wecom",
+            "department_id": dept_id,
+            "department_name": dept_node.get("name", ""),
+            "total_members": len(merged_data),
+        },
+        "members": list(merged_data.keys()),
+        "data": merged_data,
+        "errors": all_errors,
+        "subtree_groups": subtree_groups,
+        "cached_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+
 def cmd_fetch_team(args):
     """采集整个团队的数据。支持 GitHub team 和企微部门两种来源。"""
     config = load_config()
@@ -1324,56 +1482,39 @@ def cmd_fetch_team(args):
             print()
             return
 
-    # 2. 并行采集：每个 (member, scope) 组合调用一次 search
-    def collect_for_member(user):
-        authored_all, reviewed_all, issues_all = [], [], []
-        for scope in scopes:
-            a = search_prs(user, scope, args.since, args.until, token, query_prefix="author")
-            r = search_prs(user, scope, args.since, args.until, token, query_prefix="reviewed-by")
-            i = search_issues(user, scope, args.since, args.until, token)
-            for result in (a, r, i):
-                if isinstance(result, dict) and "error" in result:
-                    return {"user": user, "error": result}
-            authored_all.extend(a)
-            reviewed_all.extend(r)
-            issues_all.extend(i)
-        prs = merge_and_dedupe(authored_all, reviewed_all)
+    # 2. 采集：大团队（超过阈值）且有子部门时走递归模式，利用缓存命中各子部门
+    wecom_data = load_wecom_data() or {}
+    all_departments = wecom_data.get("departments", [])
+    dept_by_id = {d["id"]: d for d in all_departments}
+    overrides_inv = {}
+    for uid, dept_ids in (config.get("leader_overrides") or {}).items():
+        for did in dept_ids:
+            overrides_inv.setdefault(did, []).append(uid)
 
-        seen = {}
-        for issue in issues_all:
-            key = (issue["repo"], issue["issue_number"])
-            if key not in seen:
-                seen[key] = issue
-        issues = sorted(seen.values(), key=lambda x: x["updated_at"], reverse=True)
+    use_recursive = (
+        team_info.get("source") == "wecom"
+        and cache_dept_id
+        and len(members) > RECURSIVE_FETCH_THRESHOLD
+        and [d for d in all_departments if d.get("parentid") == cache_dept_id]
+    )
 
-        # PR 详情 + Issue comments
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            for f in as_completed(
-                [pool.submit(fetch_pr_details, pr, token) for pr in prs]
-                + [pool.submit(fetch_issue_comments, iss, token) for iss in issues]
-            ):
-                f.result()
-
-        return {"user": user, "prs": prs, "issues": issues}
-
-    # 成员数可能较多，降低外层并发以规避 secondary rate limit
-    team_data = {}
-    errors = []
-    with ThreadPoolExecutor(max_workers=min(5, len(members))) as pool:
-        futures = {pool.submit(collect_for_member, m): m for m in members}
-        for future in as_completed(futures):
-            result = future.result()
-            user = result["user"]
-            if "error" in result:
-                errors.append({"user": user, "error": result["error"]})
-                continue
-            team_data[user] = {"prs": result["prs"], "issues": result["issues"]}
+    if use_recursive:
+        recursive_output = _fetch_team_recursive(
+            cache_dept_id, args.since, args.until, token, scopes, wecom_data, refresh,
+            dept_by_id, overrides_inv,
+        )
+        team_data = recursive_output["data"]
+        errors = recursive_output["errors"]
+        # subtree_groups 来自递归结果，不在下面重算
+        precomputed_subtree_groups = recursive_output["subtree_groups"]
+    else:
+        team_data, errors = _fetch_member_list(members, scopes, args.since, args.until, token,
+                                                max_workers=5)
+        precomputed_subtree_groups = None
 
     # 生成子部门分组元信息（企微来源时，按"顶层部门的直接子部门"划分成员，供周报分层呈现）
-    subtree_groups = []
-    if team_info.get("source") == "wecom" and cache_dept_id:
-        wecom_data = load_wecom_data() or {}
-        all_departments = wecom_data.get("departments", [])
+    subtree_groups = precomputed_subtree_groups if precomputed_subtree_groups is not None else []
+    if not precomputed_subtree_groups and team_info.get("source") == "wecom" and cache_dept_id:
         wecom_members = wecom_data.get("members", [])
 
         # 直接子部门
